@@ -27,7 +27,21 @@ public class PoolManager : MonoBehaviour
 	public Action OnCleanup;
 	public Action OnRelease;
 
-	
+	public PooledGameObject Spawn(string id, Transform parent = null)
+	{
+		if (pool.TryGetValue(id, out var objectPool))
+		{
+			var pooledGO = objectPool.Get();
+			if (parent)
+			{
+				pooledGO.transform.SetParent(parent);
+			}
+
+			return pooledGO;
+		}
+
+		return null;
+	}
 
 	public void InstantiatePool()
 	{
