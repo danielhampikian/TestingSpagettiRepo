@@ -4,24 +4,37 @@ using System.Collections.Generic;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-public class GameManager : MonoBehaviour
+public class GameManager : Singleton<GameManager>
 {
     private int cubeScore;
+    public int totalShapes = 0;
+    public int maxShapesOnScreen = 0;
+    public float timeWithinTenOfMaxShapesOnScreen = 0;
     private int sphereScore;
     private int cylinderScore;
+    private int sphereTotalScore;
+    private int cylinderTotalScore;
+    private int cubeTotalScore;
+    private float cubeSurvivalScore;
+    private float sphereSurvivalScore;
+    private float cylinderSurvivalScore;
 
-    public bool testTie = true;
     public int roundCount = 0;
     public int shapeCount = 10;
-    public float x = 10;
-    public float z = 10;
+    public float mapScaleMax = 10; // the starting max map dimensions on X and Z are the same, and decreasae symetically as the map reduces so no need for two variables for x and z
+    public float mapScaleMin = 4;
     public float mapShrinkRate = 1;
     public float roundLength = 10f;
     public float currentTime = 0;
     public float currentX;
     public float currentZ;
+    public float chanceToWin = .75f;
+    public float chanceToLose = .25f;
+    //MapManager.OnMapReduced += MapSizeUpdate;
 
-    private Action<float, float> OnMapUpdate;
+
+
+
     [SerializeField] 
     private PoolManager poolManager;
     [SerializeField] 
@@ -29,28 +42,17 @@ public class GameManager : MonoBehaviour
 
     public void Start()
     {
-        
+        MapManager.setMapScaleMax(mapScaleMax);
+        MapManager.setMapScaleMin(mapScaleMin);
+        // Allocate memory and create pooled GameObjects
+        // the total amount of objects should be 10 * 9 * 8 * 7
         StartRound();
     }
 
     public void StartRound()
     {
         currentTime = 0;
-        currentX = x;
-        currentZ = z;
-
-        // Allocate memory and create pooled GameObjects
-
-            poolManager.InstantiatePool();
-
-
-        // Get GameObject from pool 
-        var cube = poolManager.Spawn("Cube");
-        var sphere = poolManager.Spawn("Sphere");
-        var cylinder = poolManager.Spawn("cylinder");
-
-
-        ObjectGenerator.Instance.GenerateShapes(OnShapeDeath, shapeCount, x, z);
+        PoolManager poolManager = new PoolManager(ObjectPoolGenerator.Instance.GenerateShapesForPool(shapeCount));
 
         StartCoroutine(ShrinkMap());
     }
@@ -61,21 +63,8 @@ public class GameManager : MonoBehaviour
         while (true)
         {
             yield return new WaitForSeconds(0.01f);
-            
-            currentX = Mathf.Clamp(currentX - mapShrinkRate, x / 4, x);
-            currentZ = Mathf.Clamp(currentZ - mapShrinkRate, z / 4, x);
-            var shapes = FindObjectsOfType<Shape>();
 
-            if (shapes != null && shapes.Length > 0)
-            {
-                foreach (Shape shape in shapes)
-                {
-                    if (shape.gameObject.activeInHierarchy)
-                    {
-                        shape.MapSizeUpdate(currentX, currentZ); //this is the current mechanism to get shapes to interact, but it's not really what's moving them 
-                    }
-                }
-            }
+            MapManager.Instance.ReduceMap(currentX, mapShrinkRate);
 
             currentTime += 0.01f;
 
@@ -85,24 +74,36 @@ public class GameManager : MonoBehaviour
             }
         }
     }
+/*    public void ReduceMap(float valToReduce, float mapShrinkRate)
+    {
+        currentMapScale = Mathf.Clamp(valToReduce - mapShrinkRate, mapScaleMax / mapScaleMin, mapScaleMax);
+        OnMapReduced(currentMapScale);
+    }*/
 
-    private void OnShapeDeath(PrimitiveType type)
+    public void OnShapeDeath(PrimitiveType type, float timeAlive)
     {
         if (type == PrimitiveType.Cube)
         {
             cubeScore++;
+            cubeSurvivalScore += timeAlive;
+            cubeTotalScore = cubeScore - Mathf.RoundToInt(cubeSurvivalScore);
             uiManager.updateCubeScoreUI(cubeScore);
         }
 
         if (type == PrimitiveType.Sphere)
         {
             sphereScore++;
+            sphereSurvivalScore += timeAlive;
+            sphereTotalScore = sphereScore = Mathf.RoundToInt(timeAlive);
+
             uiManager.updateSphereScoreUI(sphereScore); 
         }
 
         if (type == PrimitiveType.Cylinder)
         {
             cylinderScore++;
+            cylinderSurvivalScore += timeAlive;
+            cylinderTotalScore = cylinderScore - Mathf.RoundToInt(timeAlive);
             uiManager.updateCylinderScoreUI(cylinderScore);
         }
     }
@@ -122,35 +123,34 @@ public class GameManager : MonoBehaviour
 
         roundCount--;
 
-        if(roundCount > 0)
+        if (roundCount > 0)
         {
             StartRound();
         }
         else
         {
-            if (testTie)
-            {
-                cubeScore = sphereScore = cylinderScore = 1;
-            }
+            //game over: 
+            totalShapes = cubeScore + sphereScore + cylinderScore;
+            string winMessage = "Total deaths: " + totalShapes + " and surival time of cube, sphere, and cylinder is: C=" + cubeSurvivalScore + " S= " + sphereSurvivalScore + " C= " + cylinderSurvivalScore;
             if (cubeScore < sphereScore && cubeScore < cylinderScore)
             {
-                uiManager.updateWinnerText("Cube Won!");
+
+                uiManager.updateWinnerText("Cube Won! Cube deaths: " + cubeScore + " out of " + winMessage);
             }
 
             if (sphereScore < cubeScore && sphereScore < cylinderScore)
             {
-                uiManager.updateWinnerText("Sphere Won!");
+                uiManager.updateWinnerText("Sphere Won! Sphere kills: " + " out of " + winMessage);
             }
 
             if (cylinderScore < sphereScore && cylinderScore < cubeScore)
             {
-                uiManager.updateWinnerText("Cylinder Won!");
+                uiManager.updateWinnerText("Cylinder Won! Cylinder kills: " + " out of " + winMessage);
             }
-            if ((cylinderScore == cubeScore) && (cylinderScore == sphereScore))
+            if ((cylinderScore == cubeScore) || (cylinderScore == sphereScore) || (cubeScore == sphereScore))
             {
-                uiManager.updateWinnerText("An unlinkely, perhaps impossible, tie! " +
-                    "Everyone won, and no one won!!!  " +
-                    "But was it every really just about winning?");
+                uiManager.updateWinnerText("An unlinkely tie occurred: cube kills: " + cubeScore + " shpere kills: "
+                    + sphereScore + " cylinder kills: " + cylinderScore);
 
             }
            

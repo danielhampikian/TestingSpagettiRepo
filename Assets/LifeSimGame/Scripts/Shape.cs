@@ -4,124 +4,129 @@ using System.Collections.Generic;
 using UnityEngine;
 using Random = UnityEngine.Random;
 
-public class Shape : MonoBehaviour
+public class Shape : GenericPoolableObject
 {
+    private float timeAliveStartingTime;
+    private int availableShapesInPool;
+    public bool nextGenerationInPool;
+    private float timeAliveEndingTime;
+    public float timeAlive;
     public PrimitiveType type;
-
-    public int  childCount=3;
-    private Action<PrimitiveType> OnDeath;
-
+    private Shape shape;
+    private ShapeMover shapeMover;
+    public int  childCount;
+    public delegate void OnDeathAction(PrimitiveType type, float timeAlive);
+    public static event OnDeathAction OnShapeDeath;
     private Color colors = Color.white;
     public Vector3 direction;
-
-    public void Init(int childCount, float maxX, float maxZ, Action<PrimitiveType> OnDeath)
+    public float floor;
+    private float yLevel = 0;
+    private bool isEnteringScene;
+    // OnMapReduced(currentMapScale);
+    private void OnEnable()
     {
-        GenerateNewDirection();
-        this.OnDeath = OnDeath;
-        this.floorX = maxX;
-        this.floorz = maxZ;
-    this.childCount = childCount;
-
+        MapManager.OnMapReduced += MapSizeUpdate;
+        OnShapeDeath += GameManager.Instance.OnShapeDeath;
+        timeAliveStartingTime = Time.time;
+    }
+  
+    void OnDisable()
+    {
+        MapManager.OnMapReduced -= MapSizeUpdate;
+        timeAliveEndingTime = Time.time;
+        timeAlive = timeAliveEndingTime - timeAliveStartingTime;
+        OnShapeDeath(type, timeAlive);
+    }
+    public void OnReturnToPool()
+    {
+        availableShapesInPool++;
+        Debug.Log("There are " + availableShapesInPool + " in the pool");
+    }
+    public override void OnDeath()
+    {
+        base.OnDeath();
+        ReturnToPool();
     }
 
-    public void MapSizeUpdate(float x, float z)
+    public void Init(int childCount)
     {
-        floorX = x;
-        floorz = z;
 
-        if(transform.position.x > floorX || transform.position.x < -floorX)
+//reference to it's pool is through .Origin and then through the dictionary in poolManager
+        this.shape = GetComponent<Shape>();
+        this.floor = MapManager.getMapScaleMax();
+        this.direction.y = yLevel; //(add logic for stacking upwards like -floor)
+        this.childCount = childCount;
+        this.shapeMover = GetComponent<ShapeMover>();
+        this.direction.x = Random.Range(-1, 1);
+        this.direction.z = Random.Range(-1, 1);
+    }
+    public override void PrepareToUse()
+    {
+        shape.transform.rotation = transform.rotation;
+        shape.transform.position = transform.position + (-direction * speed * (1 + childCount) * 4);
+        Color col = GetColor(childCount);
+        shape.GetComponent<Shape>().GetComponent<Renderer>().material.color = col;
+        if (childCount > 1)
+        {
+            AddChildrenToPool(false);
+        }
+        else AddChildrenToPool(true);
+    }
+    public void AddChildrenToPool(bool oneGenerationLeft)
+    {
+        if (!oneGenerationLeft)
+        {
+            ObjectPoolGenerator.Instance.GenerateShape(false, type, childCount);
+            oneGenerationLeft = true;
+        }
+        else 
+        {
+            ObjectPoolGenerator.Instance.GenerateShape(false, type, childCount);
+        }
+
+    }
+    public void MapSizeUpdate(float x)
+    {
+        
+        floor = x;
+        if(transform.position.x > floor || transform.position.x < -floor)
         {
             Vector3 newPos = transform.position;
-            newPos.x = floorX;
+            newPos.x = floor;
             transform.position = newPos;
         }
 
-        if (transform.position.z > floorz || transform.position.z < -floorz)
+        if (transform.position.z > floor || transform.position.z < -floor)
         {
             Vector3 newPos = transform.position;
-            newPos.z = floorX;
+            newPos.z = floor;
             transform.position = newPos;
         }
-
-
     }
 
-    public float floorX;
-    public float floorz;
+
     private void Update()
     {
         Move();
     }
 
-    public void Awake()
-    {
-        
-    }
 
     public float speed=0.01f;
     public void Move()
     {
-        Vector3 newPos = transform.position + (direction * speed);
-
-        if (direction == Vector3.zero 
-            || (newPos.x > floorX || newPos.x < -floorX)
-             || (newPos.z > floorz || newPos.z < -floorz))
-        {
-            GenerateNewDirection();
-        }
-        else
-        {
-            transform.position = newPos;
-        }
+        shapeMover.Move(transform.position, direction, speed, floor);
     }
 
-    private void GenerateNewDirection()
-    {
-        direction.x = Random.Range(-1f, 1f);
-        direction.z = Random.Range(-1f, 1f);
-    }
-
-    private void OnTriggerEnter(Collider other)
-    {
-        if(other.GetComponent<Shape>() != null)
-        {
-            if(type == PrimitiveType.Cube && other.GetComponent<Shape>().type == PrimitiveType.Sphere)
-            {
-                Attack(other.GetComponent<Shape>());
-            }
-
-            if (type == PrimitiveType.Sphere && other.GetComponent<Shape>().type == PrimitiveType.Cylinder)
-            {
-                Attack(other.GetComponent<Shape>());
-            }
-
-            if (type == PrimitiveType.Cylinder && other.GetComponent<Shape>().type == PrimitiveType.Cube)
-            {
-                Attack(other.GetComponent<Shape>());
-            }
-        }
-    }
-
-    void Attack(Shape shape)
+   public void Attack(Shape shape)
     {
         direction *= -1;
         if (shape.gameObject.activeInHierarchy)
         {
-            shape.Destroy();
+            GameManager.Instance.OnShapeDeath(shape.type, timeAlive);
         }
     }
 
-    public void Destroy()
-    {
-        gameObject.SetActive(false);
-
-        CreateChildren();
-
-        OnDeath?.Invoke(type);
-        Destroy(gameObject);
-    }
-
-    private void CreateChildren()
+    private Color GetColor(int childCount)
     {
         Color color = Color.white;
 
@@ -141,25 +146,17 @@ public class Shape : MonoBehaviour
         {
             color = Color.blue;
         }
-
-        for (int i = 0; i < childCount; i++)
-        {
-            GameObject shape = GameObject.CreatePrimitive(type);
-            shape.AddComponent<Shape>();
-            shape.AddComponent<Rigidbody>();
-            shape.GetComponent<Rigidbody>().useGravity = false;
-            shape.GetComponent<Rigidbody>().isKinematic = true;
-            shape.GetComponent<Collider>().isTrigger = true;
-            shape.GetComponent<Shape>().Init(childCount - 1, floorX, floorz, OnDeath);
-            shape.GetComponent<Shape>().speed = speed * (1 + (i / childCount));
-            shape.GetComponent<Shape>().type = type;
-
-            shape.transform.localScale = transform.localScale;
-            shape.transform.localScale *= 0.9f;
-            shape.transform.rotation = transform.rotation;
-            shape.transform.position = transform.position + (-direction * speed * (1 + i) * 4);
-
-            shape.GetComponent<Shape>().GetComponent<Renderer>().material.color = color;
-        }
+        return color;
     }
+
+    public void AssembleShapeFromPrimitive(PrimitiveType type)
+    {
+        GameObject shape = GameObject.CreatePrimitive(type);
+        shape.AddComponent<Shape>();
+        shape.AddComponent<Rigidbody>();
+        shape.GetComponent<Rigidbody>().useGravity = false;
+        shape.GetComponent<Rigidbody>().isKinematic = true;
+        shape.GetComponent<Collider>().isTrigger = true;
+    }
+
 }

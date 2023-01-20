@@ -2,28 +2,38 @@
 using System.Runtime.InteropServices.WindowsRuntime;
 using UnityEngine;
 
-public class ShapeMover : Shape, IMove //Should all just be an interface, the ineritence structure is bad here but I'm running out of time, should refactor this so that the whole thing is an interface
-{
-    public ShapeMover()
+public class ShapeMover : MonoBehaviour, IMove {
+
+    float maxVal;
+    Vector3 curPos;
+    Vector3 direction;
+
+    public Vector3 Move(Vector3 direction, float speed)
     {
+        return Move(curPos, direction, speed, maxVal);
     }
-    public void Move()
+    public Vector3 Move(Vector3 curPosition, Vector3 direction, float speed, float maxVal)
     {
-        Vector3 newPos = base.transform.position + (base.direction * base.speed);
-        if (Mathf.Abs(newPos.x) >= Mathf.Abs(base.floorX))  //greater than or equal handles the zero cases
+        this.maxVal = maxVal;
+        this.curPos = curPosition;
+
+        Vector3 newPos = curPosition + (direction * speed);
+        if (Mathf.Abs(newPos.x) >= maxVal)  //greater than or equal handles the zero cases
         {
-            base.direction.x = GenerateNewDirection(direction.x);
+            direction.x = GenerateNewDirection(direction.x);
+            Move(direction, speed);
         }
-        if (Mathf.Abs(newPos.z) >= Mathf.Abs(base.floorz))
+        if (Mathf.Abs(newPos.z) >= maxVal)
         {
-            base.direction.z = GenerateNewDirection(direction.z);
+            direction.z = GenerateNewDirection(direction.z);
+            Move(direction, speed);
         }
-        else
-        {
-            base.transform.position = newPos;
-        }
+
+         return newPos;
     }
-    private float GenerateNewDirection(float isPositiveDirection)
+
+    
+    public float GenerateNewDirection(float isPositiveDirection)
     {
         float newDir = UnityEngine.Random.Range(-1f, 0);
         return isPositiveDirection > 0 ? -newDir : newDir;
@@ -32,6 +42,6 @@ public class ShapeMover : Shape, IMove //Should all just be an interface, the in
 
 public interface IMove
 {
-    public void Move();
+    public Vector3 Move(Vector3 pos, Vector3 dir, float speed, float maxVal);
 }
  
